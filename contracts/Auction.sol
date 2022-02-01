@@ -3,14 +3,12 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import "@openzeppelin/contracts/utils/Strings.sol";
 
 contract AbsoluteAuction {
     event AddEvent(uint256, uint256);
     struct AuctionListing {
         address seller;
         uint256 tokenId;
-        uint256 startTime;
         uint256 expiresAt;
         address highestBidder;
         uint256 bidAmount;
@@ -24,26 +22,30 @@ contract AbsoluteAuction {
         stixor_contract = contract_address;
     }
 
+    event addAuctionEvent(uint256, uint256);
+
     function addAuctionListing(uint256 tokenId, uint256 expiresAt) internal {
         // check if owner of token is the one adding the listing
         require(
             stixor_contract.ownerOf(tokenId) == msg.sender,
             "only owner of token can list it"
         );
+        // emit addAuctionEvent(expiresAt, block.timestamp);
         require(
-            expiresAt > block.timestamp,
-            "expiry time has to be greater than start time"
+            expiresAt - block.timestamp >= 15 * 60,
+            "expiry time has to be 15 minutes or more than start time"
         );
-        stixor_contract.safeTransferFrom(msg.sender, address(this), tokenId);
         auctionListings[listingId] = AuctionListing(
             msg.sender,
             tokenId,
-            block.timestamp,
             expiresAt,
             address(0),
             0
         );
         listingId++;
+
+        stixor_contract.safeTransferFrom(msg.sender, address(this), tokenId);
+        emit addAuctionEvent(block.timestamp, expiresAt);
     }
 
     function cancelAuctionListing(uint256 listing_Id) internal {
@@ -52,20 +54,16 @@ contract AbsoluteAuction {
         //listing cancelled
         delete auctionListings[listing_Id];
 
-        //trasnfer token back to seller
+        //transfer token back to seller
         stixor_contract.safeTransferFrom(
             address(this),
             listing.seller,
             listing.tokenId,
             ""
         );
-    }
 
-    function extendAuctionTime(uint256 listing_Id, uint256 time_extension)
-        internal
-    {
-        require(time_extension > 0, "time extension must be greater than 0");
-        auctionListings[listing_Id].expiresAt += time_extension;
+        //refund amount to highest bidder
+        payable(listing.highestBidder).transfer(listing.bidAmount);
     }
 
     function bidOnAuctionListing(uint256 listing_Id) external payable {
@@ -77,33 +75,56 @@ contract AbsoluteAuction {
             auctionListings[listing_Id].seller != msg.sender,
             "bidder cannot be seller"
         );
-        AuctionListing storage listing = auctionListings[listing_Id];
-
-        require(msg.value > listing.bidAmount, "insufficient bid amount");
-        listing.highestBidder = msg.sender;
-        listing.bidAmount = msg.value;
-    }
-
-    function claimToken(uint256 listing_Id) internal {
+        require(
+            block.timestamp < auctionListings[listing_Id].expiresAt,
+            "auction is over"
+        );
+        require(
+            msg.value > auctionListings[listing_Id].bidAmount,
+            "insufficient bid amount"
+        );
         AuctionListing memory listing = auctionListings[listing_Id];
 
-        require(block.timestamp > listing.expiresAt, "auction is not over yet");
+        //assign new highest bidder
+        auctionListings[listing_Id].highestBidder = msg.sender;
+        auctionListings[listing_Id].bidAmount = msg.value;
+
+        //extend auction by 15 minutes if bid is made within last 8 minutes
+        if (listing.expiresAt - block.timestamp < 8 * 60) {
+            auctionListings[listing_Id].expiresAt += 15 * 60;
+        }
+
+        //refund amount to previous highest bidder
+        payable(listing.highestBidder).transfer(listing.bidAmount);
+    }
+
+    function resolveAuction(uint256 listing_Id) internal {
+        AuctionListing memory listing = auctionListings[listing_Id];
         require(
-            listing.highestBidder == msg.sender,
-            "only highest bidder can claim token"
+            block.timestamp >= listing.expiresAt,
+            "auction is not over yet"
         );
 
         //remove listing
         delete auctionListings[listing_Id];
 
-        //first transfer token
+        //if there were no bidders, transfer token back to seller
+        if (listing.highestBidder == address(0)) {
+            stixor_contract.safeTransferFrom(
+                address(this),
+                listing.seller,
+                listing.tokenId,
+                ""
+            );
+            return;
+        }
+
         stixor_contract.safeTransferFrom(
             address(this),
-            msg.sender,
+            listing.highestBidder,
             listing.tokenId,
             ""
         );
-        //then send ether to seller
         payable(listing.seller).transfer(listing.bidAmount);
     }
 }

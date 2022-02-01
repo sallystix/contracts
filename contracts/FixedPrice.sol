@@ -47,6 +47,7 @@ contract FixedPrice {
     }
 
     function editFixedPriceListing(uint256 listing_Id, uint256 price) internal {
+        require(price > 0, "price cannot be equal to 0");
         Listing storage listing = listings[listing_Id];
         listing.price = price;
     }
@@ -79,6 +80,9 @@ contract FixedPrice {
         );
         //then send ether to seller
         payable(listing.seller).transfer(listing.price);
-        payable(msg.sender).transfer(msg.value - listing.price);
+
+        //refund remaining amount to buyer
+        if (msg.value > listing.price)
+            payable(msg.sender).transfer(msg.value - listing.price);
     }
 }

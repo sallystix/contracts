@@ -66,14 +66,6 @@ contract MarketPlace is IERC721Receiver, AbsoluteAuction, FixedPrice {
         cancelAuctionListing(listing_Id);
     }
 
-    function extendAuction(uint256 listing_Id, uint256 time_extension)
-        external
-        auctionlistingExists(listing_Id)
-        onlySeller(auctionListings[listing_Id].seller)
-    {
-        extendAuctionTime(listing_Id, time_extension);
-    }
-
     function editFixedPrice(uint256 listing_Id, uint256 price)
         external
         fixedPriceListingExists(listing_Id)
@@ -82,10 +74,10 @@ contract MarketPlace is IERC721Receiver, AbsoluteAuction, FixedPrice {
         editFixedPriceListing(listing_Id, price);
     }
 
-    function claimOnTimeout(uint256 listing_Id)
+    function resolveAuctionListing(uint256 listing_Id)
         external
         auctionlistingExists(listing_Id)
     {
-        claimToken(listing_Id);
+        resolveAuction(listing_Id);
     }
 }
